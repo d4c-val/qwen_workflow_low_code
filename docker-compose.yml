@@ -1,0 +1,27 @@
+# ============================================
+# QwenFlow Docker Compose Configuration
+# ============================================
+# Quick Start:
+#   1. Copy .env.example to .env
+#   2. Set your DASHSCOPE_API_KEY in .env
+#   3. Run: docker-compose up -d
+# ============================================
+
+services:
+  qwenflow:
+    build: .
+    container_name: qwenflow
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - PORT=8000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+

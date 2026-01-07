@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="QwenFlow - 基于通义千问的可视化 AI 工作流编排平台" />
+    <meta name="keywords" content="QwenFlow, AI, Workflow, 通义千问, Qwen, 工作流, 可视化" />
+    <meta name="author" content="QwenFlow" />
+    <meta property="og:title" content="QwenFlow - AI 工作流编排平台" />
+    <meta property="og:description" content="拖拽式节点操作，直观构建 AI 工作流" />
+    <meta property="og:type" content="website" />
+    <title>QwenFlow - AI 工作流编排平台</title>
+    <style>
+      /* 加载动画 */
+      #app-loader {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        transition: opacity 0.3s ease;
+      }
+      #app-loader.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .loader-logo {
+        width: 60px;
+        height: 60px;
+        border-radius: 16px;
+        background: linear-gradient(135deg, #6366f1, #8b5cf6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 10px 40px rgba(99, 102, 241, 0.3);
+        animation: pulse-loader 1.5s ease-in-out infinite;
+      }
+      .loader-logo span {
+        color: white;
+        font-size: 28px;
+        font-weight: bold;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      .loader-text {
+        margin-top: 16px;
+        color: #6b7280;
+        font-size: 14px;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      @keyframes pulse-loader {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app-loader">
+      <div class="loader-logo"><span>Q</span></div>
+      <div class="loader-text">Loading QwenFlow...</div>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+    <script>
+      // 隐藏加载动画
+      window.addEventListener('load', () => {
+        setTimeout(() => {
+          const loader = document.getElementById('app-loader');
+          if (loader) loader.classList.add('hidden');
+        }, 300);
+      });
+    </script>
+  </body>
+</html>

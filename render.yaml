@@ -1,0 +1,24 @@
+# ============================================
+# Render.com 部署配置
+# ============================================
+# 使用方法:
+#   1. Fork 此仓库到你的 GitHub
+#   2. 在 Render.com 创建新的 Web Service
+#   3. 连接你的 GitHub 仓库
+#   4. 设置环境变量 DASHSCOPE_API_KEY
+#   5. 部署完成！
+# ============================================
+
+services:
+  - type: web
+    name: qwenflow
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: DASHSCOPE_API_KEY
+        sync: false
+      - key: PORT
+        value: 8000
+    healthCheckPath: /docs
+
