@@ -51,6 +51,28 @@ docker-compose up -d
 # 访问 http://localhost:8000
 ```
 
+<details>
+<summary>🇨🇳 国内用户：Docker 镜像加速配置</summary>
+
+如果 `docker-compose up` 时下载镜像超时，需要配置镜像加速：
+
+1. 打开 **Docker Desktop** → **Settings** → **Docker Engine**
+2. 添加以下配置：
+
+```json
+{
+  "registry-mirrors": [
+    "https://docker.1ms.run",
+    "https://docker.xuanyuan.me"
+  ]
+}
+```
+
+3. 点击 **Apply & Restart**
+4. 重新执行 `docker-compose up -d`
+
+</details>
+
 #### 方式二：本地开发
 
 ```bash
@@ -146,6 +168,28 @@ docker-compose up -d
 
 # Visit http://localhost:8000
 ```
+
+<details>
+<summary>🇨🇳 China Users: Docker Mirror Configuration</summary>
+
+If image download times out, configure Docker mirror:
+
+1. Open **Docker Desktop** → **Settings** → **Docker Engine**
+2. Add configuration:
+
+```json
+{
+  "registry-mirrors": [
+    "https://docker.1ms.run",
+    "https://docker.xuanyuan.me"
+  ]
+}
+```
+
+3. Click **Apply & Restart**
+4. Run `docker-compose up -d` again
+
+</details>
 
 #### Option 2: Local Development
 
