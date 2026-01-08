@@ -1,6 +1,18 @@
 import React, { useState } from 'react';
+import { useTheme } from '../theme.jsx';
 
-export default function QueuePanel({ history = [], currentExecution, onRerun, isCollapsed, onToggle }) {
+export default function QueuePanel({ 
+  history = [], 
+  currentExecution, 
+  onRerun, 
+  onViewDetail,
+  onClearHistory,
+  isCollapsed, 
+  onToggle,
+  debugMode,
+  debugPaused,
+}) {
+  const { themes } = useTheme();
   const [activeTab, setActiveTab] = useState('current'); // 'current' or 'history'
 
   if (isCollapsed) {
@@ -37,7 +49,7 @@ export default function QueuePanel({ history = [], currentExecution, onRerun, is
       right: '10px',
       top: '60px',
       bottom: '10px',
-      width: '280px',
+      width: '300px',
       background: 'var(--theme-sidebar)',
       border: '1px solid var(--theme-sidebarBorder)',
       borderRadius: '12px',
@@ -57,9 +69,23 @@ export default function QueuePanel({ history = [], currentExecution, onRerun, is
         justifyContent: 'space-between',
         alignItems: 'center',
       }}>
-        <span style={{ fontSize: '14px', fontWeight: '600', color: 'var(--theme-text)' }}>
-          队列管理
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '14px', fontWeight: '600', color: 'var(--theme-text)' }}>
+            队列管理
+          </span>
+          {debugMode && (
+            <span style={{
+              fontSize: '10px',
+              padding: '2px 6px',
+              background: 'var(--theme-warning)',
+              color: '#000',
+              borderRadius: '8px',
+              fontWeight: '500',
+            }}>
+              调试
+            </span>
+          )}
+        </div>
         <button
           onClick={onToggle}
           style={{
@@ -146,14 +172,37 @@ export default function QueuePanel({ history = [], currentExecution, onRerun, is
                   gap: '8px',
                   marginBottom: '8px',
                 }}>
-                  <span style={{ fontSize: '16px' }}>⚡</span>
+                  <span style={{ fontSize: '16px' }}>
+                    {debugPaused ? '⏸️' : '⚡'}
+                  </span>
                   <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--theme-text)' }}>
-                    运行中
+                    {debugPaused ? '已暂停' : '运行中'}
                   </span>
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--theme-textSecondary)', marginBottom: '8px' }}>
                   Workflow #{currentExecution.id}
                 </div>
+                
+                {/* 调试模式显示层级信息 */}
+                {debugMode && currentExecution.totalLayers && (
+                  <div style={{ 
+                    fontSize: '11px', 
+                    color: 'var(--theme-warning)', 
+                    marginBottom: '8px',
+                    padding: '6px 10px',
+                    background: 'var(--theme-warning)15',
+                    borderRadius: '6px',
+                    border: '1px solid var(--theme-warning)30',
+                  }}>
+                    📍 当前层: {currentExecution.layerIndex + 1} / {currentExecution.totalLayers}
+                    {currentExecution.currentLayer && (
+                      <div style={{ marginTop: '4px', fontSize: '10px', color: 'var(--theme-textMuted)' }}>
+                        待执行节点: {currentExecution.currentLayer.join(', ')}
+                      </div>
+                    )}
+                  </div>
+                )}
+                
                 <div style={{ fontSize: '11px', color: 'var(--theme-textMuted)', marginBottom: '8px' }}>
                   {currentExecution.completed}/{currentExecution.total} 节点完成
                 </div>
@@ -167,10 +216,27 @@ export default function QueuePanel({ history = [], currentExecution, onRerun, is
                   <div style={{
                     height: '100%',
                     width: `${(currentExecution.completed / currentExecution.total) * 100}%`,
-                    background: 'linear-gradient(90deg, var(--theme-buttonPrimary), var(--theme-info))',
+                    background: debugPaused 
+                      ? 'linear-gradient(90deg, var(--theme-warning), var(--theme-warning))' 
+                      : 'linear-gradient(90deg, var(--theme-buttonPrimary), var(--theme-info))',
                     transition: 'width 0.3s',
                   }} />
                 </div>
+
+                {/* 调试模式提示 */}
+                {debugPaused && (
+                  <div style={{
+                    marginTop: '12px',
+                    padding: '10px',
+                    background: 'var(--theme-info)15',
+                    borderRadius: '6px',
+                    border: '1px solid var(--theme-info)30',
+                    fontSize: '11px',
+                    color: 'var(--theme-info)',
+                  }}>
+                    💡 点击顶部 <strong>"下一步"</strong> 按钮执行下一层节点，或双击节点查看详情
+                  </div>
+                )}
               </div>
             ) : (
               <div style={{
@@ -181,6 +247,18 @@ export default function QueuePanel({ history = [], currentExecution, onRerun, is
               }}>
                 <div style={{ fontSize: '32px', marginBottom: '8px', opacity: 0.5 }}>💤</div>
                 无正在执行的工作流
+                {debugMode && (
+                  <div style={{ 
+                    marginTop: '12px', 
+                    padding: '8px',
+                    background: 'var(--theme-warning)15',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    color: 'var(--theme-warning)',
+                  }}>
+                    🐛 调试模式已开启，运行后将单步执行
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -206,19 +284,8 @@ export default function QueuePanel({ history = [], currentExecution, onRerun, is
                     background: 'var(--theme-backgroundTertiary)',
                     borderRadius: '6px',
                     border: '1px solid var(--theme-border)',
-                    cursor: 'pointer',
                     transition: 'all 0.2s',
                   }}
-                  onMouseOver={(e) => {
-                    e.currentTarget.style.background = 'var(--theme-nodeHover)';
-                    e.currentTarget.style.borderColor = 'var(--theme-buttonPrimary)';
-                  }}
-                  onMouseOut={(e) => {
-                    e.currentTarget.style.background = 'var(--theme-backgroundTertiary)';
-                    e.currentTarget.style.borderColor = 'var(--theme-border)';
-                  }}
-                  onClick={() => onRerun && onRerun(item)}
-                  title="点击重新运行"
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                     <span style={{ fontSize: '12px', fontWeight: '500', color: 'var(--theme-text)' }}>
@@ -239,8 +306,79 @@ export default function QueuePanel({ history = [], currentExecution, onRerun, is
                   {item.duration && (
                     <div style={{ fontSize: '10px', color: 'var(--theme-textMuted)', marginTop: '4px' }}>
                       耗时: {item.duration}ms
+                      {item.nodeResults && (
+                        <span> | {Object.keys(item.nodeResults).length} 个节点</span>
+                      )}
                     </div>
                   )}
+                  
+                  {/* 操作按钮 */}
+                  <div style={{ 
+                    display: 'flex', 
+                    gap: '6px', 
+                    marginTop: '8px',
+                    paddingTop: '8px',
+                    borderTop: '1px solid var(--theme-border)',
+                  }}>
+                    {item.nodeResults && (
+                      <button
+                        onClick={() => onViewDetail && onViewDetail(item)}
+                        style={{
+                          flex: 1,
+                          padding: '6px 8px',
+                          background: 'var(--theme-buttonPrimary)',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontSize: '11px',
+                          fontWeight: '500',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '4px',
+                          transition: 'all 0.2s',
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.background = 'var(--theme-buttonPrimaryHover)';
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.background = 'var(--theme-buttonPrimary)';
+                        }}
+                      >
+                        🔍 查看详情
+                      </button>
+                    )}
+                    <button
+                      onClick={() => onRerun && onRerun(item)}
+                      style={{
+                        flex: 1,
+                        padding: '6px 8px',
+                        background: 'transparent',
+                        color: 'var(--theme-textSecondary)',
+                        border: '1px solid var(--theme-border)',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontSize: '11px',
+                        fontWeight: '500',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '4px',
+                        transition: 'all 0.2s',
+                      }}
+                      onMouseOver={(e) => {
+                        e.currentTarget.style.background = 'var(--theme-buttonSecondaryHover)';
+                        e.currentTarget.style.color = 'var(--theme-text)';
+                      }}
+                      onMouseOut={(e) => {
+                        e.currentTarget.style.background = 'transparent';
+                        e.currentTarget.style.color = 'var(--theme-textSecondary)';
+                      }}
+                    >
+                      🔄 重跑
+                    </button>
+                  </div>
                 </div>
               ))
             )}
@@ -258,7 +396,7 @@ export default function QueuePanel({ history = [], currentExecution, onRerun, is
           <button
             onClick={() => {
               if (window.confirm('确定清空所有历史记录？')) {
-                // 清空逻辑
+                onClearHistory && onClearHistory();
               }
             }}
             style={{
@@ -281,7 +419,7 @@ export default function QueuePanel({ history = [], currentExecution, onRerun, is
               e.currentTarget.style.color = 'var(--theme-textSecondary)';
             }}
           >
-            清空历史
+            🗑️ 清空历史
           </button>
         </div>
       )}

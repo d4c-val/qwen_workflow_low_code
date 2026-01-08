@@ -19,6 +19,7 @@ import ContextMenu from './components/ContextMenu';
 import TopBar from './components/TopBar';
 import QueuePanel from './components/QueuePanel';
 import SettingsPanel from './components/SettingsPanel';
+import NodeDebugPanel, { ExecutionDetailPanel } from './components/NodeDebugPanel';
 import { getExecutionLayers, executeNode } from './WorkflowEngine';
 
 // === 节点配置（分类） ===
@@ -335,6 +336,18 @@ function AppContent() {
   const [showSettings, setShowSettings] = useState(false);
   const [executionHistory, setExecutionHistory] = useState([]);
   const [currentExecution, setCurrentExecution] = useState(null);
+  // 调试模式相关状态
+  const [debugMode, setDebugMode] = useState(false);
+  const [debugPaused, setDebugPaused] = useState(false);
+  const [pendingLayers, setPendingLayers] = useState([]);
+  const [executionContext, setExecutionContext] = useState({});
+  const [currentLayerIndex, setCurrentLayerIndex] = useState(0);
+  // 节点调试面板
+  const [selectedNodeForDebug, setSelectedNodeForDebug] = useState(null);
+  const [showNodeDebugPanel, setShowNodeDebugPanel] = useState(false);
+  // 历史记录详情面板
+  const [selectedExecution, setSelectedExecution] = useState(null);
+  const [showExecutionDetail, setShowExecutionDetail] = useState(false);
   const [settings, setSettings] = useState({
     apiKey: localStorage.getItem('qwenflow-api-key') || '',
     defaultModel: 'qwen-plus',
@@ -371,7 +384,7 @@ function AppContent() {
   }, [setNodes]);
 
   // 工作流执行
-  const runWorkflow = async () => {
+  const runWorkflow = async (startFromDebug = false) => {
     if (nodes.length === 0) return alert("画布是空的！");
     
     const execId = Date.now();
@@ -380,42 +393,112 @@ function AppContent() {
     setMenu(null);
     setCurrentExecution({ id: execId, completed: 0, total: nodes.length });
 
-    try {
-      const layers = getExecutionLayers(nodes, edges);
-      const context = {};
-      const nodeMap = new Map(nodes.map(n => [n.id, n]));
-      let completedCount = 0;
+    // 用于记录所有节点的输入输出
+    const nodeResults = {};
+    const nodeInputs = {};
 
-      for (const layer of layers) {
+    try {
+      const layers = startFromDebug ? pendingLayers : getExecutionLayers(nodes, edges);
+      const context = startFromDebug ? { ...executionContext } : {};
+      const nodeMap = new Map(nodes.map(n => [n.id, n]));
+      let completedCount = startFromDebug ? currentLayerIndex : 0;
+      let layerIdx = startFromDebug ? currentLayerIndex : 0;
+
+      for (let i = layerIdx; i < layers.length; i++) {
+        const layer = layers[i];
+        
+        // 调试模式：在每层执行前暂停
+        if (debugMode && !startFromDebug) {
+          setDebugPaused(true);
+          setPendingLayers(layers);
+          setExecutionContext(context);
+          setCurrentLayerIndex(i);
+          setCurrentExecution({ 
+            id: execId, 
+            completed: completedCount, 
+            total: nodes.length,
+            currentLayer: layer,
+            layerIndex: i,
+            totalLayers: layers.length,
+          });
+          setIsRunning(false);
+          return; // 暂停执行，等待用户点击"下一步"
+        }
+
         setNodes(nds => nds.map(n => layer.includes(n.id) ? { ...n, data: { ...n.data, status: 'running' } } : n));
         await new Promise(resolve => setTimeout(resolve, 50));
 
         const results = await Promise.all(layer.map(async (nodeId) => {
           const node = nodeMap.get(nodeId);
-          if (!node) return { nodeId, result: null, error: null };
+          if (!node) return { nodeId, result: null, error: null, inputs: null };
+          
+          // 收集该节点的输入（来自上游节点的输出）
+          const upstreamEdges = edges.filter(e => e.target === nodeId);
+          const inputs = {};
+          upstreamEdges.forEach(e => {
+            inputs[e.source] = context[e.source];
+          });
+          // 也包含节点自身的配置
+          inputs._config = {
+            prompt: node.data.prompt,
+            system_prompt: node.data.system_prompt,
+            model: node.data.model,
+          };
+          
           try {
-            return { nodeId, result: await executeNode(node, context, edges), error: null };
+            const result = await executeNode(node, context, edges);
+            return { nodeId, result, error: null, inputs };
           } catch (err) {
-            return { nodeId, result: null, error: err.message };
+            return { nodeId, result: null, error: err.message, inputs };
           }
         }));
 
         let hasError = false;
         const updates = {};
-        for (const { nodeId, result, error } of results) {
+        for (const { nodeId, result, error, inputs } of results) {
           completedCount++;
-          setCurrentExecution({ id: execId, completed: completedCount, total: nodes.length });
+          setCurrentExecution({ 
+            id: execId, 
+            completed: completedCount, 
+            total: nodes.length,
+            layerIndex: i + 1,
+            totalLayers: layers.length,
+          });
+          
+          // 保存输入输出记录
+          nodeInputs[nodeId] = inputs;
           
           if (error) {
             hasError = true;
             updates[nodeId] = { result: `❌ Error: ${error}`, status: 'error' };
+            nodeResults[nodeId] = `❌ Error: ${error}`;
           } else {
             context[nodeId] = result;
             updates[nodeId] = { result, status: 'completed' };
+            nodeResults[nodeId] = result;
           }
         }
 
         setNodes(nds => nds.map(n => updates[n.id] ? { ...n, data: { ...n.data, ...updates[n.id] } } : n));
+        
+        // 调试模式：在每层执行后暂停
+        if (debugMode && i < layers.length - 1) {
+          setDebugPaused(true);
+          setPendingLayers(layers);
+          setExecutionContext(context);
+          setCurrentLayerIndex(i + 1);
+          setCurrentExecution({ 
+            id: execId, 
+            completed: completedCount, 
+            total: nodes.length,
+            currentLayer: layers[i + 1],
+            layerIndex: i + 1,
+            totalLayers: layers.length,
+          });
+          setIsRunning(false);
+          return; // 暂停执行
+        }
+        
         if (hasError) throw new Error("部分节点执行失败");
       }
 
@@ -426,7 +509,15 @@ function AppContent() {
         status: 'success',
         timestamp: Date.now(),
         duration,
+        nodeResults, // 保存所有节点的输出
+        nodeInputs,  // 保存所有节点的输入
       }, ...prev.slice(0, 19)]); // 保留最近20条
+      
+      // 重置调试状态
+      setDebugPaused(false);
+      setPendingLayers([]);
+      setExecutionContext({});
+      setCurrentLayerIndex(0);
     } catch (error) {
       console.error("Workflow Error:", error);
       const duration = Date.now() - startTime;
@@ -435,7 +526,15 @@ function AppContent() {
         status: 'error',
         timestamp: Date.now(),
         duration,
+        nodeResults,
+        nodeInputs,
       }, ...prev.slice(0, 19)]);
+      
+      // 重置调试状态
+      setDebugPaused(false);
+      setPendingLayers([]);
+      setExecutionContext({});
+      setCurrentLayerIndex(0);
     } finally {
       setIsRunning(false);
       setCurrentExecution(null);
@@ -443,9 +542,131 @@ function AppContent() {
     }
   };
 
+  // 调试模式：执行下一步
+  const debugStepNext = async () => {
+    if (!debugPaused || pendingLayers.length === 0) return;
+    
+    setDebugPaused(false);
+    const execId = Date.now();
+    const nodeMap = new Map(nodes.map(n => [n.id, n]));
+    const context = { ...executionContext };
+    const layer = pendingLayers[currentLayerIndex];
+    
+    if (!layer) {
+      // 没有更多层了
+      setDebugPaused(false);
+      setPendingLayers([]);
+      setExecutionContext({});
+      setCurrentLayerIndex(0);
+      return;
+    }
+    
+    setIsRunning(true);
+    setNodes(nds => nds.map(n => layer.includes(n.id) ? { ...n, data: { ...n.data, status: 'running' } } : n));
+    await new Promise(resolve => setTimeout(resolve, 50));
+    
+    const results = await Promise.all(layer.map(async (nodeId) => {
+      const node = nodeMap.get(nodeId);
+      if (!node) return { nodeId, result: null, error: null };
+      try {
+        const result = await executeNode(node, context, edges);
+        return { nodeId, result, error: null };
+      } catch (err) {
+        return { nodeId, result: null, error: err.message };
+      }
+    }));
+    
+    const updates = {};
+    for (const { nodeId, result, error } of results) {
+      if (error) {
+        updates[nodeId] = { result: `❌ Error: ${error}`, status: 'error' };
+      } else {
+        context[nodeId] = result;
+        updates[nodeId] = { result, status: 'completed' };
+      }
+    }
+    
+    setNodes(nds => nds.map(n => updates[n.id] ? { ...n, data: { ...n.data, ...updates[n.id] } } : n));
+    setExecutionContext(context);
+    
+    // 检查是否还有下一层
+    if (currentLayerIndex + 1 < pendingLayers.length) {
+      setCurrentLayerIndex(currentLayerIndex + 1);
+      setDebugPaused(true);
+      setCurrentExecution({
+        id: execId,
+        completed: currentLayerIndex + 1,
+        total: pendingLayers.length,
+        currentLayer: pendingLayers[currentLayerIndex + 1],
+        layerIndex: currentLayerIndex + 1,
+        totalLayers: pendingLayers.length,
+      });
+    } else {
+      // 执行完成
+      setDebugPaused(false);
+      setPendingLayers([]);
+      setExecutionContext({});
+      setCurrentLayerIndex(0);
+      setCurrentExecution(null);
+    }
+    
+    setIsRunning(false);
+  };
+
+  // 单独运行某个节点
+  const runSingleNode = async (nodeId) => {
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node) return;
+    
+    setIsRunning(true);
+    setNodes(nds => nds.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'running' } } : n));
+    
+    try {
+      // 构建上下文（从已有的节点结果中）
+      const context = {};
+      nodes.forEach(n => {
+        if (n.data.result && !String(n.data.result).startsWith('❌')) {
+          context[n.id] = n.data.result;
+        }
+      });
+      
+      const result = await executeNode(node, context, edges);
+      setNodes(nds => nds.map(n => n.id === nodeId ? { ...n, data: { ...n.data, result, status: 'completed' } } : n));
+    } catch (err) {
+      setNodes(nds => nds.map(n => n.id === nodeId ? { ...n, data: { ...n.data, result: `❌ Error: ${err.message}`, status: 'error' } } : n));
+    } finally {
+      setIsRunning(false);
+      setTimeout(() => setNodes(nds => nds.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'idle' } } : n)), 2000);
+    }
+  };
+
+  // 查看节点调试信息
+  const handleNodeDoubleClick = useCallback((event, node) => {
+    setSelectedNodeForDebug(node);
+    setShowNodeDebugPanel(true);
+  }, []);
+
+  // 查看历史记录详情
+  const handleViewExecutionDetail = useCallback((execution) => {
+    setSelectedExecution(execution);
+    setShowExecutionDetail(true);
+  }, []);
+
+  // 清空历史记录
+  const clearHistory = useCallback(() => {
+    setExecutionHistory([]);
+  }, []);
+
   const stopWorkflow = () => {
     setIsRunning(false);
     setCurrentExecution(null);
+    // 重置调试状态
+    setDebugPaused(false);
+    setPendingLayers([]);
+    setExecutionContext({});
+    setCurrentLayerIndex(0);
+    // 重置所有节点状态
+    setNodes(nds => nds.map(n => ({ ...n, data: { ...n.data, status: 'idle' } })));
   };
 
   // 导出工作流
@@ -494,9 +715,26 @@ function AppContent() {
       id: `node_${Date.now()}`,
       type,
       position,
-      data: { label: type, type, prompt: '', code: '', result: '', updateNodeData },
+      data: { label: type, type, prompt: '', code: '', result: '', updateNodeData, getUpstreamData },
     }));
   }, [reactFlowInstance, setNodes, updateNodeData]);
+
+  // 获取上游节点数据的函数
+  const getUpstreamData = useCallback((nodeId) => {
+    const upstreamEdges = edges.filter(e => e.target === nodeId);
+    const upstreamData = {};
+    upstreamEdges.forEach(edge => {
+      const sourceNode = nodes.find(n => n.id === edge.source);
+      if (sourceNode && sourceNode.data.result) {
+        upstreamData[edge.source] = {
+          label: sourceNode.data.label || sourceNode.type,
+          type: sourceNode.type,
+          result: sourceNode.data.result,
+        };
+      }
+    });
+    return upstreamData;
+  }, [edges, nodes]);
 
   const onDragOver = useCallback((event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; }, []);
 
@@ -534,12 +772,17 @@ function AppContent() {
       transition: 'background 0.3s',
     }}>
       <TopBar
-        onRun={runWorkflow}
+        onRun={() => runWorkflow(false)}
         onStop={stopWorkflow}
         isRunning={isRunning}
         onSettings={() => setShowSettings(true)}
         onExport={exportWorkflow}
         onImport={importWorkflow}
+        debugMode={debugMode}
+        onToggleDebugMode={() => setDebugMode(!debugMode)}
+        debugPaused={debugPaused}
+        onDebugStepNext={debugStepNext}
+        currentExecution={currentExecution}
       />
 
       <Sidebar
@@ -551,8 +794,12 @@ function AppContent() {
         history={executionHistory}
         currentExecution={currentExecution}
         onRerun={(item) => console.log('Rerun', item)}
+        onViewDetail={handleViewExecutionDetail}
+        onClearHistory={clearHistory}
         isCollapsed={queueCollapsed}
         onToggle={() => setQueueCollapsed(!queueCollapsed)}
+        debugMode={debugMode}
+        debugPaused={debugPaused}
       />
 
       <SettingsPanel
@@ -580,6 +827,7 @@ function AppContent() {
             onEdgeContextMenu={onEdgeContextMenu}
             onReconnect={onReconnect}
             onPaneClick={onPaneClick}
+            onNodeDoubleClick={handleNodeDoubleClick}
             nodeTypes={nodeTypes}
             fitView
             snapToGrid={settings.snapToGrid}
@@ -616,6 +864,27 @@ function AppContent() {
           </ReactFlow>
         </ReactFlowProvider>
       </div>
+
+      {/* 节点调试面板 */}
+      <NodeDebugPanel
+        isOpen={showNodeDebugPanel}
+        onClose={() => setShowNodeDebugPanel(false)}
+        selectedNode={selectedNodeForDebug}
+        nodeInputs={executionContext}
+        nodeOutputs={executionContext}
+        allNodes={nodes}
+        edges={edges}
+        onRunSingleNode={runSingleNode}
+        isRunning={isRunning}
+      />
+
+      {/* 历史记录详情面板 */}
+      <ExecutionDetailPanel
+        isOpen={showExecutionDetail}
+        onClose={() => setShowExecutionDetail(false)}
+        execution={selectedExecution}
+        onRerun={(item) => console.log('Rerun from detail', item)}
+      />
     </div>
   );
 }

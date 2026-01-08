@@ -70,9 +70,21 @@ class OneVideoRequest(BaseModel):
 
 
 # === 通用错误处理 ===
-async def handle_dashscope_request(url: str, payload: dict, timeout: int = 60) -> dict:
-    """统一处理 DashScope API 请求"""
+async def handle_dashscope_request(url: str, payload: dict, timeout: int = 60, async_mode: bool = False) -> dict:
+    """统一处理 DashScope API 请求
+    
+    Args:
+        url: API 地址
+        payload: 请求体
+        timeout: 超时时间
+        async_mode: 是否使用异步任务模式（视频生成等长时任务需要）
+    """
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    
+    # 异步任务模式需要添加特殊请求头
+    if async_mode:
+        headers["X-DashScope-Async"] = "enable"
+    
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(url, headers=headers, json=payload, timeout=timeout)
@@ -300,7 +312,7 @@ async def api_one_video(req: OneVideoRequest):
     - wait_for_completion=False (默认): 立即返回 task_id，前端轮询查询状态
     - wait_for_completion=True: 等待视频生成完成后返回视频URL（最多等待10分钟）
     """
-    # 提交视频生成任务
+    # 提交视频生成任务（使用异步模式）
     data = await handle_dashscope_request(
         "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
         {
@@ -317,7 +329,8 @@ async def api_one_video(req: OneVideoRequest):
                 "shot_type": req.shot_type
             }
         },
-        timeout=60
+        timeout=60,
+        async_mode=True  # 视频生成必须使用异步模式
     )
     
     # 获取任务ID和状态
