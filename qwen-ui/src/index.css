@@ -1,33 +1,6 @@
-/* === 统一色彩系统 === */
+/* === 主题色彩变量（由 theme.js 动态注入） === */
 :root {
-  /* 主色调 */
-  --primary-50: #f0f9ff;
-  --primary-100: #e0f2fe;
-  --primary-500: #0ea5e9;
-  --primary-600: #0284c7;
-  --primary-900: #0c4a6e;
-  
-  /* 中性色 */
-  --surface-50: #fafafa;
-  --surface-100: #f5f5f5;
-  --surface-200: #e5e5e5;
-  --surface-300: #d4d4d4;
-  --surface-400: #a3a3a3;
-  --surface-500: #737373;
-  --surface-600: #525252;
-  --surface-700: #404040;
-  --surface-800: #262626;
-  --surface-900: #171717;
-  
-  /* 语义色 */
-  --success-400: #4ade80;
-  --success-500: #22c55e;
-  --success-600: #16a34a;
-  --warning-400: #facc15;
-  --warning-500: #eab308;
-  --error-400: #f87171;
-  --error-500: #ef4444;
-  --error-600: #dc2626;
+  /* 主题颜色变量将在运行时由 ThemeProvider 注入 */
   
   /* 字体 */
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -39,6 +12,11 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  
+  /* 过渡时间 */
+  --transition-fast: 150ms;
+  --transition-normal: 250ms;
+  --transition-slow: 350ms;
 }
 
 /* === 全局重置 === */
@@ -50,8 +28,9 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-  color: var(--surface-800);
+  background: var(--background);
+  color: var(--textPrimary);
+  transition: background var(--transition-normal) ease, color var(--transition-normal) ease;
 }
 
 /* === 动画系统 === */
@@ -120,8 +99,8 @@ button:focus-visible {
 
 /* === 滚动条美化 === */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -129,32 +108,72 @@ button:focus-visible {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--surface-300);
-  border-radius: 3px;
+  background: var(--scrollbarThumb);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--surface-400);
+  background: var(--scrollbarThumbHover);
+  background-clip: padding-box;
 }
 
 /* === 选中文本样式 === */
 ::selection {
-  background: var(--primary-100);
-  color: var(--primary-900);
+  background: var(--buttonPrimary);
+  color: var(--textInverse);
+  opacity: 0.3;
 }
 
 /* === 输入框焦点样式 === */
 input:focus, textarea:focus, select:focus {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15);
+  border-color: var(--inputBorderFocus) !important;
+  box-shadow: 0 0 0 2px rgba(88, 101, 242, 0.2);
 }
 
 /* === 节点拖拽提示 === */
 .react-flow__node.selected {
-  box-shadow: 0 0 0 2px var(--primary-500) !important;
+  box-shadow: 0 0 0 2px var(--buttonPrimary) !important;
 }
 
 /* === 连线悬停效果 === */
 .react-flow__edge:hover .react-flow__edge-path {
   stroke-width: 3px;
+  stroke: var(--edgeHover) !important;
+}
+
+/* === ReactFlow 样式覆盖 === */
+.react-flow {
+  background: var(--canvasBackground);
+}
+
+.react-flow__controls {
+  background: var(--panelBackground);
+  border: 1px solid var(--border);
+}
+
+.react-flow__controls button {
+  background: var(--buttonSecondary);
+  border-bottom: 1px solid var(--border);
+  color: var(--textPrimary);
+}
+
+.react-flow__controls button:hover {
+  background: var(--buttonSecondaryHover);
+}
+
+.react-flow__minimap {
+  background: var(--panelBackground);
+  border: 1px solid var(--border);
+}
+
+/* === 深色主题特定样式 === */
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
 }
