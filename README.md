@@ -6,7 +6,7 @@
 
 **基于通义千问的可视化 AI 工作流编排平台**
 
-[English](#english) | [中文](#中文)
+[中文](#中文) | [English](#english)
 
 [![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/qwen_workflow_low_code?referralCode=qwen_workflow_low_code)
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/d4c-val/qwen_workflow_low_code)

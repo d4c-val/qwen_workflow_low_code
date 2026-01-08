@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
-
+import json
 # === 初始化 ===
 load_dotenv()
 app = FastAPI(
@@ -34,8 +34,20 @@ class ChatRequest(BaseModel):
     prompt: str
     temperature: float = 0.7
 
+class ChatForImageRequest(BaseModel):
+    model: str = "qwen-plus"
+    system_prompt: Optional[str] = ""
+    prompt: str
+    temperature: float = 0.7
+
 class PromptRequest(BaseModel):
     prompt: str
+
+class ImageRequest(BaseModel):
+    prompt: str
+    model: str = "qwen-image-max" # qwen-image-max, qwen-image-plus
+    size: Optional[str] = "1104*1472" # 1664*928（默认值）：16:9。1472*1104：4:3 。1328*1328：1:1。1104*1472：3:4。928*1664：9:16
+    negative_prompt: Optional[str] = ""
 
 class VisionRequest(BaseModel):
     image_url: str
@@ -50,10 +62,10 @@ class OneVideoRequest(BaseModel):
     prompt: str
     image_url: str
     audio_url: Optional[str] = None
-    resolution: Optional[str] = "1280*720"
-    prompt_extend: Optional[bool] = True
-    duration: Optional[int] = 5
-    shot_type: Optional[str] = "default"
+    resolution: Optional[str] = "1080P"  #720P、1080P
+    prompt_extend: Optional[bool] = False # True, False
+    duration: Optional[int] = 5 # 5, 10, 15
+    shot_type: Optional[str] = "single" # single, multi
     wait_for_completion: Optional[bool] = False  # 是否等待视频生成完成
 
 
@@ -101,15 +113,29 @@ async def api_chat(req: ChatRequest):
     )
     return {"result": data.get("choices", [{}])[0].get("message", {}).get("content", "文本生成失败")}
 
+@app.post("/api/chat_for_image")
+async def api_chat_for_image(req: ChatForImageRequest):
+    """文本生成"""
+    messages = []
+    if req.system_prompt:
+        messages.append({"role": "system", "content": f"你是一个图片生成助手，你会根据用户的输入输出正面提示词和负面提示词，以json格式返回{{'prompt': '正面提示词', 'negative_prompt': '负面提示词'}}，对你的要求如下：" + req.system_prompt})
+    messages.append({"role": "user", "content": req.prompt})
+
+    data = await handle_dashscope_request(
+        "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+        {"model": req.model, "messages": messages, "temperature": req.temperature,"response_format":{"type": "json_object"}}
+    )
+    return {"result": json.loads(data.get("choices", [{}])[0].get("message", {}).get("content", "{}"))}
+
 @app.post("/api/image")
-async def api_image(req: PromptRequest):
+async def api_image(req: ImageRequest):
     """图像生成"""
     data = await handle_dashscope_request(
         "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
         {
-            "model": "qwen-image-max",
+            "model": req.model,
             "input": {"messages": [{"role": "user", "content": [{"text": req.prompt}]}]},
-            "parameters": {"size": "1104*1472"}
+            "parameters": {"size": req.size, "negative_prompt": req.negative_prompt}
         },
         timeout=120
     )

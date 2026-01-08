@@ -6,9 +6,11 @@ import { useTheme } from '../theme.jsx';
 const NODE_CONFIGS = {
   prompt: { color: '#6366f1', icon: '✏️', gradient: 'linear-gradient(135deg, #6366f1, #8b5cf6)' },
   chat: { color: '#7c3aed', icon: '💬', gradient: 'linear-gradient(135deg, #7c3aed, #a78bfa)' },
+  chatForImage: { color: '#a855f7', icon: '🎯', gradient: 'linear-gradient(135deg, #a855f7, #c084fc)' },
   image: { color: '#ec4899', icon: '🎨', gradient: 'linear-gradient(135deg, #ec4899, #f472b6)' },
   imageEdit: { color: '#f472b6', icon: '🖌️', gradient: 'linear-gradient(135deg, #f472b6, #fb7185)' },
   vision: { color: '#3b82f6', icon: '👁️', gradient: 'linear-gradient(135deg, #3b82f6, #60a5fa)' },
+  video: { color: '#06b6d4', icon: '🎬', gradient: 'linear-gradient(135deg, #06b6d4, #22d3ee)' },
   filter: { color: '#f59e0b', icon: '⚡', gradient: 'linear-gradient(135deg, #f59e0b, #fbbf24)' },
   debug: { color: '#10b981', icon: '🐛', gradient: 'linear-gradient(135deg, #10b981, #34d399)' },
 };
@@ -133,6 +135,47 @@ const BaseNode = ({ data, id, children, icon, title, nodeType }) => {
           bottom: '-6px',
         }} 
       />
+    </div>
+  );
+};
+
+// === 下拉选择组件 ===
+const NodeSelect = ({ label, value, onChange, options }) => {
+  const { theme } = useTheme();
+  
+  return (
+    <div style={{ marginBottom: '8px' }}>
+      <label style={{ 
+        display: 'block', 
+        fontSize: '10px', 
+        fontWeight: '600', 
+        color: theme.colors.textSecondary, 
+        marginBottom: '4px',
+        textTransform: 'uppercase',
+        letterSpacing: '0.5px',
+      }}>
+        {label}
+      </label>
+      <select 
+        value={value} 
+        onChange={onChange} 
+        className="nodrag" 
+        style={{ 
+          width: '100%', 
+          padding: '6px 8px', 
+          fontSize: '11px', 
+          border: `1px solid ${theme.colors.inputBorder}`, 
+          borderRadius: '6px', 
+          outline: 'none', 
+          backgroundColor: theme.colors.inputBackground, 
+          color: theme.colors.inputText, 
+          cursor: 'pointer',
+        }}
+      >
+        {options.map(opt => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
     </div>
   );
 };
@@ -399,18 +442,94 @@ export const ChatNode = memo(({ data, id }) => {
   );
 });
 
+// ChatForImage 节点 - 专门用于生成图像提示词（返回 JSON 格式）
+export const ChatForImageNode = memo(({ data, id }) => {
+  const { theme } = useTheme();
+  const { setNodes } = useReactFlow();
+  const updateData = createUpdateData(id, data.updateNodeData, setNodes);
+  
+  return (
+    <BaseNode data={data} id={id} icon="🎯" title={`Prompt Gen · ${data.model || 'qwen-plus'}`} nodeType="chatForImage">
+      <HintBox>
+        生成正负提示词 JSON，可直接连接 Image 节点
+      </HintBox>
+      <NodeSelect
+        label="模型"
+        value={data.model || 'qwen-plus'}
+        onChange={(e) => updateData('model', e.target.value)}
+        options={[
+          { value: 'qwen-plus', label: 'Qwen Plus' },
+          { value: 'qwen-turbo', label: 'Qwen Turbo' },
+          { value: 'qwen-max', label: 'Qwen Max' },
+        ]}
+      />
+      <NodeInput 
+        label="System" 
+        value={data.system_prompt} 
+        onChange={(e) => updateData('system_prompt', e.target.value)} 
+        placeholder="图片风格要求（如：写实风格、动漫风格）..." 
+        rows={2} 
+      />
+      <NodeInput 
+        label="Prompt" 
+        value={data.prompt} 
+        onChange={(e) => updateData('prompt', e.target.value)} 
+        placeholder="描述你想要的图片..." 
+        rows={3} 
+      />
+      <ResultDisplay result={data.result} />
+    </BaseNode>
+  );
+});
+
+// Image 节点配置选项
+const IMAGE_MODELS = [
+  { value: 'qwen-image-max', label: 'Qwen Image Max' },
+  { value: 'qwen-image-plus', label: 'Qwen Image Plus' },
+];
+
+const IMAGE_SIZES = [
+  { value: '1664*928', label: '16:9 (1664×928)' },
+  { value: '1472*1104', label: '4:3 (1472×1104)' },
+  { value: '1328*1328', label: '1:1 (1328×1328)' },
+  { value: '1104*1472', label: '3:4 (1104×1472)' },
+  { value: '928*1664', label: '9:16 (928×1664)' },
+];
+
 export const ImageNode = memo(({ data, id }) => {
   const { setNodes } = useReactFlow();
   const updateData = createUpdateData(id, data.updateNodeData, setNodes);
   
   return (
-    <BaseNode data={data} id={id} icon="🎨" title="Image" nodeType="image">
+    <BaseNode data={data} id={id} icon="🎨" title={`Image · ${(data.model || 'qwen-image-max').replace('qwen-image-', '')}`} nodeType="image">
+      <HintBox>
+        支持从 Prompt Gen 节点获取提示词
+      </HintBox>
+      <NodeSelect
+        label="模型"
+        value={data.model || 'qwen-image-max'}
+        onChange={(e) => updateData('model', e.target.value)}
+        options={IMAGE_MODELS}
+      />
+      <NodeSelect
+        label="尺寸"
+        value={data.size || '1104*1472'}
+        onChange={(e) => updateData('size', e.target.value)}
+        options={IMAGE_SIZES}
+      />
       <NodeInput 
-        label="描述" 
+        label="正向提示词" 
         value={data.prompt} 
         onChange={(e) => updateData('prompt', e.target.value)} 
-        placeholder="描述图片内容..." 
+        placeholder="描述图片内容（或使用 {{node_id}}）..." 
         rows={2} 
+      />
+      <NodeInput 
+        label="负向提示词" 
+        value={data.negative_prompt} 
+        onChange={(e) => updateData('negative_prompt', e.target.value)} 
+        placeholder="不想要的元素..." 
+        rows={1} 
       />
       <ResultDisplay result={data.result} type="image" />
     </BaseNode>
@@ -467,6 +586,87 @@ export const VisionNode = memo(({ data, id }) => {
         onChange={(e) => updateData('prompt', e.target.value)} 
         placeholder="URL | 问题..." 
         rows={2} 
+      />
+      <ResultDisplay result={data.result} />
+    </BaseNode>
+  );
+});
+
+// Video 节点配置选项
+const VIDEO_RESOLUTIONS = [
+  { value: '720P', label: '720P' },
+  { value: '1080P', label: '1080P' },
+];
+
+const VIDEO_DURATIONS = [
+  { value: 5, label: '5秒' },
+  { value: 10, label: '10秒' },
+  { value: 15, label: '15秒' },
+];
+
+const VIDEO_SHOT_TYPES = [
+  { value: 'single', label: '单镜头' },
+  { value: 'multi', label: '多镜头' },
+];
+
+const VIDEO_PROMPT_EXTEND = [
+  { value: 'false', label: '关闭' },
+  { value: 'true', label: '开启' },
+];
+
+export const VideoNode = memo(({ data, id }) => {
+  const { setNodes } = useReactFlow();
+  const updateData = createUpdateData(id, data.updateNodeData, setNodes);
+  
+  return (
+    <BaseNode data={data} id={id} icon="🎬" title="Video" nodeType="video">
+      <HintBox>
+        图生视频，支持异步生成和轮询
+      </HintBox>
+      <NodeInput 
+        label="图片URL" 
+        value={data.image_url} 
+        onChange={(e) => updateData('image_url', e.target.value)} 
+        placeholder="输入图片URL或 {{node_id}}..." 
+        rows={1} 
+      />
+      <NodeInput 
+        label="提示词" 
+        value={data.prompt} 
+        onChange={(e) => updateData('prompt', e.target.value)} 
+        placeholder="描述视频动作..." 
+        rows={2} 
+      />
+      <NodeSelect
+        label="分辨率"
+        value={data.resolution || '1080P'}
+        onChange={(e) => updateData('resolution', e.target.value)}
+        options={VIDEO_RESOLUTIONS}
+      />
+      <NodeSelect
+        label="时长"
+        value={data.duration || 5}
+        onChange={(e) => updateData('duration', parseInt(e.target.value))}
+        options={VIDEO_DURATIONS}
+      />
+      <NodeSelect
+        label="镜头类型"
+        value={data.shot_type || 'single'}
+        onChange={(e) => updateData('shot_type', e.target.value)}
+        options={VIDEO_SHOT_TYPES}
+      />
+      <NodeSelect
+        label="提示词扩展"
+        value={String(data.prompt_extend ?? false)}
+        onChange={(e) => updateData('prompt_extend', e.target.value === 'true')}
+        options={VIDEO_PROMPT_EXTEND}
+      />
+      <NodeInput 
+        label="音频URL（可选）" 
+        value={data.audio_url} 
+        onChange={(e) => updateData('audio_url', e.target.value)} 
+        placeholder="可选，音频文件URL..." 
+        rows={1} 
       />
       <ResultDisplay result={data.result} />
     </BaseNode>
@@ -533,9 +733,11 @@ export const DebugNode = memo(({ data, id }) => (
 export const nodeTypes = {
   prompt: PromptNode,
   chat: ChatNode,
+  chatForImage: ChatForImageNode,
   image: ImageNode,
   imageEdit: ImageEditNode,
   vision: VisionNode,
+  video: VideoNode,
   filter: FilterNode,
   debug: DebugNode
 };

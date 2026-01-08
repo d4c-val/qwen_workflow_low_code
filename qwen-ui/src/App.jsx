@@ -31,13 +31,27 @@ const NODE_CATEGORIES = [
     ]
   },
   {
-    name: 'AI 模型',
+    name: 'AI 文本',
     collapsed: false,
     nodes: [
       { type: 'chat', label: 'Chat', icon: '💬', color: '#7c3aed', desc: '文本生成' },
+      { type: 'chatForImage', label: 'Prompt Gen', icon: '🎯', color: '#a855f7', desc: '图像提示词生成' },
+    ]
+  },
+  {
+    name: 'AI 图像',
+    collapsed: false,
+    nodes: [
       { type: 'image', label: 'Image', icon: '🎨', color: '#ec4899', desc: '图像生成' },
       { type: 'imageEdit', label: 'Edit', icon: '🖌️', color: '#f472b6', desc: '图像编辑' },
       { type: 'vision', label: 'Vision', icon: '👁️', color: '#3b82f6', desc: '视觉分析' },
+    ]
+  },
+  {
+    name: 'AI 视频',
+    collapsed: false,
+    nodes: [
+      { type: 'video', label: 'Video', icon: '🎬', color: '#06b6d4', desc: '图生视频' },
     ]
   },
   {

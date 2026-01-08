@@ -78,6 +78,35 @@ const callApi = async (endpoint, payload) => {
   return handleApiResponse(res);
 };
 
+// 视频任务轮询（每10秒查询一次）
+const pollVideoTask = async (taskId, maxWaitTime = 600, pollInterval = 10) => {
+  let elapsed = 0;
+  
+  while (elapsed < maxWaitTime) {
+    const res = await fetch(`${API_BASE}/video/task/${taskId}`);
+    if (!res.ok) throw new Error(`查询视频任务失败: ${res.statusText}`);
+    
+    const data = await res.json();
+    console.log(`[Video Poll] Task ${taskId}: ${data.task_status}, elapsed: ${elapsed}s`);
+    
+    if (data.task_status === 'SUCCEEDED') {
+      return data.video_url || data.result;
+    } else if (data.task_status === 'FAILED') {
+      throw new Error(data.error || '视频生成失败');
+    } else if (data.task_status === 'CANCELED') {
+      throw new Error('视频生成任务已取消');
+    } else if (data.task_status === 'UNKNOWN') {
+      throw new Error(data.error || '任务状态未知');
+    }
+    
+    // PENDING 或 RUNNING，等待后继续
+    await new Promise(resolve => setTimeout(resolve, pollInterval * 1000));
+    elapsed += pollInterval;
+  }
+  
+  throw new Error(`视频生成超时（${maxWaitTime}秒）`);
+};
+
 // === 节点执行 ===
 export const executeNode = async (node, context, edges = []) => {
   const { type, data } = node;
@@ -99,8 +128,44 @@ export const executeNode = async (node, context, edges = []) => {
           temperature: data.temperature || 0.7
         });
 
-      case 'image':
-        return await callApi('image', { prompt: userPrompt });
+      case 'chatForImage':
+        // 返回 JSON 格式的正负提示词
+        return await callApi('chat_for_image', {
+          model: data.model || 'qwen-plus',
+          system_prompt: systemPrompt,
+          prompt: userPrompt,
+          temperature: data.temperature || 0.7
+        });
+
+      case 'image': {
+        // 检查是否有上游的 chatForImage 节点
+        const upstreamIds = getUpstreamNodeIds(node.id, edges);
+        let prompt = userPrompt;
+        let negativePrompt = replaceVariables(data.negative_prompt || "", context);
+        
+        // 如果上游节点返回的是 JSON 对象（来自 chatForImage）
+        for (const upId of upstreamIds) {
+          const upResult = context[upId];
+          if (upResult && typeof upResult === 'object' && upResult.prompt) {
+            // 使用上游的正负提示词
+            if (!prompt.trim() || prompt === '{{' + upId + '}}') {
+              prompt = upResult.prompt;
+            }
+            if (!negativePrompt.trim() && upResult.negative_prompt) {
+              negativePrompt = upResult.negative_prompt;
+            }
+            console.log(`[Image] 使用 chatForImage 节点输出:`, { prompt, negativePrompt });
+            break;
+          }
+        }
+        
+        return await callApi('image', { 
+          prompt,
+          model: data.model || 'qwen-image-max',
+          size: data.size || '1104*1472',
+          negative_prompt: negativePrompt
+        });
+      }
 
       case 'imageEdit': {
         const upstreamIds = getUpstreamNodeIds(node.id, edges);
@@ -127,6 +192,49 @@ export const executeNode = async (node, context, edges = []) => {
         const prompt = parts.slice(1).join("|").trim() || "Describe this image";
         if (!imageUrl || !imageUrl.startsWith("http")) throw new Error("Vision 节点输入格式错误，请使用: 图片URL | 问题");
         return await callApi('vision', { image_url: imageUrl, prompt });
+      }
+
+      case 'video': {
+        // 获取图片 URL（从输入或上游节点）
+        const upstreamIds = getUpstreamNodeIds(node.id, edges);
+        let imageUrl = replaceVariables(data.image_url || "", context);
+        
+        // 如果没有手动输入，从上游获取
+        if (!imageUrl.startsWith('http') && upstreamIds.length > 0) {
+          for (const upId of upstreamIds) {
+            const upResult = context[upId];
+            if (upResult && typeof upResult === 'string' && upResult.startsWith('http')) {
+              imageUrl = upResult;
+              console.log(`[Video] 自动获取上游图片:`, imageUrl);
+              break;
+            }
+          }
+        }
+        
+        if (!imageUrl || !imageUrl.startsWith('http')) {
+          throw new Error("视频节点需要图片URL（请连接图片生成节点或手动输入URL）");
+        }
+        
+        // 提交视频生成任务
+        const videoResult = await callApi('video', {
+          prompt: userPrompt,
+          image_url: imageUrl,
+          audio_url: data.audio_url || null,
+          resolution: data.resolution || '1080P',
+          prompt_extend: data.prompt_extend ?? false,
+          duration: data.duration || 5,
+          shot_type: data.shot_type || 'single',
+          wait_for_completion: false // 使用轮询方式
+        });
+        
+        // 如果返回 task_id，开始轮询
+        if (videoResult && typeof videoResult === 'object' && videoResult.task_id) {
+          console.log(`[Video] 任务已提交，开始轮询:`, videoResult.task_id);
+          return await pollVideoTask(videoResult.task_id);
+        }
+        
+        // 直接返回结果（向后兼容）
+        return videoResult;
       }
 
       case 'filter':
