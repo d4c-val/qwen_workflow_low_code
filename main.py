@@ -1,5 +1,6 @@
 import os
 import httpx
+import asyncio
 from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Request
@@ -44,6 +45,17 @@ class ImageEditRequest(BaseModel):
     images: list[str]
     prompt: str
     negative_prompt: Optional[str] = ""
+
+class OneVideoRequest(BaseModel):
+    prompt: str
+    image_url: str
+    audio_url: Optional[str] = None
+    resolution: Optional[str] = "1280*720"
+    prompt_extend: Optional[bool] = True
+    duration: Optional[int] = 5
+    shot_type: Optional[str] = "default"
+    wait_for_completion: Optional[bool] = False  # 是否等待视频生成完成
+
 
 # === 通用错误处理 ===
 async def handle_dashscope_request(url: str, payload: dict, timeout: int = 60) -> dict:
@@ -158,6 +170,214 @@ async def api_vision(req: VisionRequest):
         }
     )
     return {"result": data.get("choices", [{}])[0].get("message", {}).get("content", "未能识别图片")}
+
+# === 视频生成相关函数 ===
+async def get_video_task_status(task_id: str) -> dict:
+    """查询视频生成任务状态"""
+    headers = {"Authorization": f"Bearer {api_key}"}
+    url = f"https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}"
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers=headers, timeout=30)
+            
+            if resp.status_code != 200:
+                return {
+                    "task_status": "UNKNOWN",
+                    "error": f"HTTP {resp.status_code}: {resp.text}"
+                }
+            
+            return resp.json()
+    except Exception as e:
+        return {
+            "task_status": "UNKNOWN",
+            "error": str(e)
+        }
+
+async def poll_video_task(task_id: str, max_wait_time: int = 600, poll_interval: int = 10) -> dict:
+    """
+    轮询视频生成任务直到完成
+    
+    Args:
+        task_id: 任务ID
+        max_wait_time: 最大等待时间（秒），默认600秒
+        poll_interval: 轮询间隔（秒），默认10秒
+    
+    Returns:
+        任务结果字典
+    """
+    elapsed_time = 0
+    
+    while elapsed_time < max_wait_time:
+        # 查询任务状态
+        result = await get_video_task_status(task_id)
+        task_status = result.get("output", {}).get("task_status", "UNKNOWN")
+        
+        print(f"[Video Task {task_id}] Status: {task_status}, Elapsed: {elapsed_time}s")
+        
+        # 检查任务状态
+        if task_status == "SUCCEEDED":
+            # 成功，返回视频URL
+            video_url = result.get("output", {}).get("video_url")
+            if video_url:
+                return {
+                    "status": "success",
+                    "video_url": video_url,
+                    "task_id": task_id,
+                    "elapsed_time": elapsed_time
+                }
+            else:
+                return {
+                    "status": "error",
+                    "error": "任务成功但未获取到视频URL",
+                    "task_id": task_id
+                }
+        
+        elif task_status == "FAILED":
+            return {
+                "status": "error",
+                "error": f"任务失败: {result.get('output', {}).get('message', '未知错误')}",
+                "task_id": task_id
+            }
+        
+        elif task_status == "CANCELED":
+            return {
+                "status": "error",
+                "error": "任务已被取消",
+                "task_id": task_id
+            }
+        
+        elif task_status == "UNKNOWN":
+            return {
+                "status": "error",
+                "error": result.get("error", "任务状态未知"),
+                "task_id": task_id
+            }
+        
+        # PENDING 或 RUNNING 状态，等待后继续轮询
+        await asyncio.sleep(poll_interval)
+        elapsed_time += poll_interval
+    
+    # 超时
+    return {
+        "status": "timeout",
+        "error": f"任务超时（{max_wait_time}秒）",
+        "task_id": task_id,
+        "message": "任务仍在处理中，请使用 task_id 查询状态"
+    }
+
+@app.post("/api/video")
+async def api_one_video(req: OneVideoRequest):
+    """
+    视频生成接口
+    
+    - wait_for_completion=False (默认): 立即返回 task_id，前端轮询查询状态
+    - wait_for_completion=True: 等待视频生成完成后返回视频URL（最多等待10分钟）
+    """
+    # 提交视频生成任务
+    data = await handle_dashscope_request(
+        "https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis",
+        {
+            "model": "wan2.6-i2v",
+            "input": {
+                "prompt": req.prompt,
+                "img_url": req.image_url,
+                "audio_url": req.audio_url
+            },
+            "parameters": {
+                "resolution": req.resolution,
+                "prompt_extend": req.prompt_extend,
+                "duration": req.duration,
+                "shot_type": req.shot_type
+            }
+        },
+        timeout=60
+    )
+    
+    # 获取任务ID和状态
+    output = data.get("output", {})
+    task_id = output.get("task_id")
+    task_status = output.get("task_status", "UNKNOWN")
+    
+    if not task_id:
+        raise HTTPException(status_code=500, detail="未获取到任务ID，API响应: " + str(data))
+    
+    # 如果不等待完成，直接返回 task_id
+    if not req.wait_for_completion:
+        return {
+            "result": {
+                "task_id": task_id,
+                "task_status": task_status,
+                "message": "视频生成任务已提交，请使用 task_id 查询生成结果"
+            }
+        }
+    
+    # 等待视频生成完成
+    print(f"[Video] Waiting for task {task_id} to complete...")
+    poll_result = await poll_video_task(task_id, max_wait_time=600, poll_interval=10)
+    
+    if poll_result["status"] == "success":
+        return {"result": poll_result["video_url"]}
+    elif poll_result["status"] == "timeout":
+        # 超时但任务可能还在进行
+        return {
+            "result": {
+                "task_id": task_id,
+                "task_status": "RUNNING",
+                "message": poll_result["message"],
+                "error": poll_result["error"]
+            }
+        }
+    else:
+        # 失败
+        raise HTTPException(
+            status_code=500,
+            detail=f"视频生成失败: {poll_result.get('error', '未知错误')}"
+        )
+
+@app.get("/api/video/task/{task_id}")
+async def api_video_task_status(task_id: str):
+    """
+    查询视频生成任务状态
+    
+    返回格式:
+    - PENDING: 任务排队中
+    - RUNNING: 任务处理中
+    - SUCCEEDED: 任务成功（包含 video_url）
+    - FAILED: 任务失败
+    - CANCELED: 任务已取消
+    - UNKNOWN: 任务不存在或状态未知
+    """
+    result = await get_video_task_status(task_id)
+    
+    output = result.get("output", {})
+    task_status = output.get("task_status", "UNKNOWN")
+    
+    response = {
+        "task_id": task_id,
+        "task_status": task_status
+    }
+    
+    # 如果成功，包含视频URL
+    if task_status == "SUCCEEDED":
+        video_url = output.get("video_url")
+        if video_url:
+            response["result"] = video_url
+            response["video_url"] = video_url
+        else:
+            response["error"] = "任务成功但未获取到视频URL"
+    
+    # 如果失败，包含错误信息
+    elif task_status == "FAILED":
+        response["error"] = output.get("message", "任务失败")
+    
+    elif task_status == "CANCELED":
+        response["error"] = "任务已被取消"
+    
+    elif task_status == "UNKNOWN":
+        response["error"] = result.get("error", "任务不存在或状态未知")
+    
+    return response
 
 # === 静态文件服务 ===
 # 生产环境下服务前端静态文件
