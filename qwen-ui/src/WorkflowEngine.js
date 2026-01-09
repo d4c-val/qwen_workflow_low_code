@@ -140,23 +140,48 @@ export const executeNode = async (node, context, edges = []) => {
       case 'image': {
         // 检查是否有上游的 chatForImage 节点
         const upstreamIds = getUpstreamNodeIds(node.id, edges);
-        let prompt = userPrompt;
-        let negativePrompt = replaceVariables(data.negative_prompt || "", context);
         
-        // 如果上游节点返回的是 JSON 对象（来自 chatForImage）
+        // 首先检查上游是否有 chatForImage 返回的 JSON
+        let foundJsonUpstream = false;
+        let prompt = "";
+        let negativePrompt = "";
+        
         for (const upId of upstreamIds) {
           const upResult = context[upId];
           if (upResult && typeof upResult === 'object' && upResult.prompt) {
-            // 使用上游的正负提示词
-            if (!prompt.trim() || prompt === '{{' + upId + '}}') {
-              prompt = upResult.prompt;
+            foundJsonUpstream = true;
+            
+            // 判断当前节点是否有手动输入（不包含模板引用）
+            const hasManualPrompt = data.prompt && data.prompt.trim() && !data.prompt.includes('{{');
+            const hasManualNegativePrompt = data.negative_prompt && data.negative_prompt.trim() && !data.negative_prompt.includes('{{');
+            
+            // 使用上游的正面提示词（除非手动输入）
+            if (hasManualPrompt) {
+              prompt = data.prompt;  // 使用手动输入，不做变量替换
+            } else {
+              prompt = upResult.prompt;  // 使用 JSON 中的 prompt
             }
-            if (!negativePrompt.trim() && upResult.negative_prompt) {
-              negativePrompt = upResult.negative_prompt;
+            
+            // 使用上游的负面提示词（除非手动输入）
+            if (hasManualNegativePrompt) {
+              negativePrompt = data.negative_prompt;  // 使用手动输入，不做变量替换
+            } else if (upResult.negative_prompt) {
+              negativePrompt = upResult.negative_prompt;  // 使用 JSON 中的 negative_prompt
             }
-            console.log(`[Image] 使用 chatForImage 节点输出:`, { prompt, negativePrompt });
+            
+            console.log(`[Image] 从 chatForImage 节点获取提示词:`, { 
+              prompt: hasManualPrompt ? `(手动输入: ${prompt.substring(0, 30)}...)` : `(自动获取: ${prompt.substring(0, 30)}...)`,
+              negativePrompt: hasManualNegativePrompt ? `(手动输入: ${negativePrompt.substring(0, 30)}...)` : `(自动获取: ${negativePrompt.substring(0, 30)}...)`
+            });
             break;
           }
+        }
+        
+        // 如果没有找到 JSON 上游，使用常规的变量替换
+        if (!foundJsonUpstream) {
+          prompt = userPrompt;
+          negativePrompt = replaceVariables(data.negative_prompt || "", context);
+          console.log(`[Image] 使用常规提示词:`, { prompt: prompt.substring(0, 50), negativePrompt: negativePrompt.substring(0, 50) });
         }
         
         return await callApi('image', { 

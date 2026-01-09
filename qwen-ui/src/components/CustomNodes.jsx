@@ -511,6 +511,7 @@ const UpstreamInputDisplay = ({ nodeId }) => {
     const paramFields = [
       { key: 'prompt', label: 'Prompt' },
       { key: 'system_prompt', label: 'System Prompt' },
+      { key: 'negative_prompt', label: 'Negative Prompt' },
       { key: 'image_url', label: '图片URL' },
       { key: 'images', label: '图片列表' },
       { key: 'code', label: '代码' },
@@ -519,23 +520,66 @@ const UpstreamInputDisplay = ({ nodeId }) => {
     Object.keys(upstreamData).forEach(sourceId => {
       const upstream = upstreamData[sourceId];
       
-      // 检查每个参数字段是否引用了该上游节点
-      paramFields.forEach(field => {
-        const fieldValue = current.data[field.key];
-        if (fieldValue && containsNodeReference(fieldValue, sourceId)) {
-          const replacedValue = replaceVariablesPreview(fieldValue, context);
+      // 特殊处理：chatForImage 节点传递 JSON 到 Image 节点
+      if (current.type === 'image' && upstream.type === 'chatForImage' && 
+          upstream.result && typeof upstream.result === 'object') {
+        // 正向提示词映射
+        if (upstream.result.prompt) {
+          const hasManualPrompt = current.data.prompt && current.data.prompt.trim() && 
+                                 !current.data.prompt.includes('{{');
           parameterMappings.push({
             sourceId,
             sourceLabel: upstream.label,
-            sourceResult: upstream.result,
-            targetField: field.label,
-            targetFieldKey: field.key,
-            originalValue: fieldValue,
-            replacedValue,
+            sourceResult: upstream.result.prompt,
+            targetField: '✨ Prompt (正向提示词)',
+            targetFieldKey: 'prompt',
+            originalValue: hasManualPrompt ? current.data.prompt : null,
+            replacedValue: upstream.result.prompt,
             hasResult: upstream.hasResult,
+            isAutomatic: true,
+            isJsonField: true,
+            hasManualInput: hasManualPrompt,
           });
         }
-      });
+        
+        // 负向提示词映射
+        if (upstream.result.negative_prompt) {
+          const hasManualNegPrompt = current.data.negative_prompt && 
+                                     current.data.negative_prompt.trim() && 
+                                     !current.data.negative_prompt.includes('{{');
+          parameterMappings.push({
+            sourceId,
+            sourceLabel: upstream.label,
+            sourceResult: upstream.result.negative_prompt,
+            targetField: '🚫 Negative Prompt (负向提示词)',
+            targetFieldKey: 'negative_prompt',
+            originalValue: hasManualNegPrompt ? current.data.negative_prompt : null,
+            replacedValue: upstream.result.negative_prompt,
+            hasResult: upstream.hasResult,
+            isAutomatic: true,
+            isJsonField: true,
+            hasManualInput: hasManualNegPrompt,
+          });
+        }
+      } else {
+        // 常规模板引用检查
+        paramFields.forEach(field => {
+          const fieldValue = current.data[field.key];
+          if (fieldValue && containsNodeReference(fieldValue, sourceId)) {
+            const replacedValue = replaceVariablesPreview(fieldValue, context);
+            parameterMappings.push({
+              sourceId,
+              sourceLabel: upstream.label,
+              sourceResult: upstream.result,
+              targetField: field.label,
+              targetFieldKey: field.key,
+              originalValue: fieldValue,
+              replacedValue,
+              hasResult: upstream.hasResult,
+            });
+          }
+        });
+      }
       
       // 如果没有显式引用，但有连接且有结果，标记为隐式传递
       const hasExplicitMapping = parameterMappings.some(m => m.sourceId === sourceId);
@@ -672,7 +716,7 @@ const UpstreamInputDisplay = ({ nodeId }) => {
                   </div>
 
                   {/* 原始模板（如果有显式引用） */}
-                  {mapping.originalValue && !mapping.isAutomatic && (
+                  {mapping.originalValue && !mapping.isAutomatic && !mapping.isJsonField && (
                     <div style={{ marginBottom: '4px' }}>
                       <div style={{ 
                         fontSize: '8px', 
@@ -692,6 +736,46 @@ const UpstreamInputDisplay = ({ nodeId }) => {
                       }}>
                         {`{{${mapping.sourceId}}}`}
                       </code>
+                    </div>
+                  )}
+
+                  {/* JSON 字段说明 */}
+                  {mapping.isJsonField && (
+                    <div style={{ marginBottom: '4px' }}>
+                      <div style={{ 
+                        fontSize: '8px', 
+                        color: mapping.hasManualInput ? themes.warning : themes.info,
+                        background: mapping.hasManualInput ? themes.warning + '15' : themes.info + '15',
+                        padding: '4px 6px',
+                        borderRadius: '3px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}>
+                        <span>{mapping.hasManualInput ? '✍️' : '📋'}</span>
+                        <span>{mapping.hasManualInput ? '手动输入优先，上游值被忽略' : '从 JSON 对象自动提取'}</span>
+                      </div>
+                      {mapping.hasManualInput && mapping.originalValue && (
+                        <div style={{ 
+                          marginTop: '4px',
+                          fontSize: '9px',
+                          color: themes.text,
+                          background: themes.input,
+                          padding: '4px 6px',
+                          borderRadius: '3px',
+                          border: `1px solid ${themes.border}`,
+                        }}>
+                          <div style={{ 
+                            fontSize: '7px', 
+                            color: themes.textMuted,
+                            marginBottom: '2px',
+                            textTransform: 'uppercase',
+                          }}>
+                            手动输入的内容:
+                          </div>
+                          {mapping.originalValue}
+                        </div>
+                      )}
                     </div>
                   )}
 
